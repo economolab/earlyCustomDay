@@ -21,9 +21,9 @@ function earlyCustomDay
     MaxTrials = 9999;
 	RewardsForLastNTrials = 40; % THIS IS THE PERIOD OVER WHICH ADVANCEMENT PARAMETERS ARE DETERMINED
 	
-     %There is an 'autowater' mode where free rewards are given to encourage licking at the better. Smaller rewards are given in this mode, 
-     %  but if a mouse licks correct, more water is dispensed.
-    AutoWaterScale = 0.6; 
+    %There is an 'autowater' mode where free rewards are given to encourage licking at the better. Smaller rewards are given in this mode,
+    %  but if a mouse licks correct, more water is dispensed.
+    AutoWaterScale = 0.8;
 
 	S = BpodSystem.ProtocolSettings; %Load settings chosen in launch manager into current workspace as a struct called S
 
@@ -36,12 +36,22 @@ function earlyCustomDay
 		S.GUI.StopLickingPeriod = 1.5;	  % in sec
 		S.GUI.TimeOut = 0.1;			  % in sec
 
-		S.ProtocolHistory = [];	  % [protocol#, n_trials_on_this_protocol, performance]
-	end
-	
-	% Initialize parameter GUI plugin
-	%BpodParameterGUI('init', S);
-
+        S.ProtocolHistory = [];	  % [protocol#, n_trials_on_this_protocol, performance]
+    end
+    
+    % Initialize a parameter GUI plugin with modifiable variables
+%     setupGUI()
+%     BpodParameterGUI('init', S);
+%     S.Timers = zeros(1,4);
+%     BpodSystem.Data.nTrials = 0;
+% 
+%     BpodSystem.Data.SessionMeta.GUIMeta = S.GUIMeta;
+%     BpodSystem.Data.SessionMeta.GUIPanels = S.GUIPanels;
+%     
+%     behavioralPerformance('init', [])
+%     myYesNoPerfOutcomePlot('init', []);
+    
+    
 % 	% sync the protocol selections
 % 	p = cellfun(@(x) strcmp(x,'ProtocolType'),BpodSystem.GUIData.ParameterGUI.ParamNames);
 % 	set(BpodSystem.GUIHandles.ParameterGUI.Params(p),'callback',{@manualChangeProtocol, S});
@@ -68,7 +78,8 @@ function earlyCustomDay
 	%% Main Trial Loop
 	for currentTrial = 1:MaxTrials
 		%S = BpodParameterGUI('sync', S); % Sync parameters with BpodParameterGUI plugin
-
+        %S = BpodParameterGUI('sync', S); % Sync parameters with BpodParameterGUI plugin
+        
 		try
 			S.GaveFreeReward;
 		catch
@@ -93,33 +104,33 @@ function earlyCustomDay
 		% Build simple State Matrix for day2 flexibility
 		sma = NewStateMatrix(); % Assemble state matrix
 
-        %State for lick initialization
+        % State for lick initialization
         sma = AddState(sma, 'Name', 'WaitForLick', 'Timer', 600,...
             'StateChangeConditions', {'Tup', 'exit', 'Port1In', 'LickLeft1', 'Port2In', 'LickRight1'},...
             'OutputActions', CueOutput); 
         
-        % Make more Lick States
+        % Make more Lick States based on neccesity
         reqLickStates = 3;   %How many times until animal gets reward
         LstateLeft = {[], [], LeftWaterOutput};
         LstateRight = {[], [], RightWaterOutput};
-        allowedWait = 5;   %In seconds
+        allowedWait = 2;   %In seconds
         consumptionPeriod = 1;
         for adS = 1: reqLickStates 
         
             if adS == reqLickStates
-                sma = AddState(sma, 'Name', ['LickLeft' num2str(adS)], 'Timer', 0.044,...
+                sma = AddState(sma, 'Name', ['LickLeft' num2str(adS)], 'Timer', 0.074,...
                     'StateChangeConditions', {'Tup', 'RewardConsumption'},...
                     'OutputActions', LstateLeft{1,adS});
-                sma = AddState(sma, 'Name', ['LickRight' num2str(adS)], 'Timer', 0.044,...
+                sma = AddState(sma, 'Name', ['LickRight' num2str(adS)], 'Timer', 0.074,...
                     'StateChangeConditions', {'Tup', 'RewardConsumption'},...
                     'OutputActions', LstateRight{1,adS});
             
             else
                 sma = AddState(sma, 'Name', ['LickLeft' num2str(adS)], 'Timer', allowedWait,...
-                    'StateChangeConditions', {'Tup', 'Pause', 'Port1In', ['LickLeft' num2str(adS + 1)]},...
+                    'StateChangeConditions', {'Tup', 'Startover', 'Port1In', ['LickLeft' num2str(adS + 1)]},...
                     'OutputActions', LstateLeft{1,adS});
                 sma = AddState(sma, 'Name', ['LickRight' num2str(adS)], 'Timer', allowedWait,...
-                    'StateChangeConditions', {'Tup', 'Pause', 'Port2In', ['LickRight' num2str(adS + 1)]},...
+                    'StateChangeConditions', {'Tup', 'Startover', 'Port2In', ['LickRight' num2str(adS + 1)]},...
                     'OutputActions', LstateRight{1,adS});
 
             end
@@ -129,10 +140,20 @@ function earlyCustomDay
             'StateChangeConditions', {'Tup', 'Pause'},...
             'OutputActions', []); % reward consumption
         
-        sma = AddState(sma, 'Name', 'Pause', 'Timer', 0.6,...
-            'StateChangeConditions', {'Tup', 'exit'},...
+        sma = AddState(sma, 'Name', 'Pause', 'Timer', 0.8,...
+            'StateChangeConditions', {'Tup', 'exit', 'Port1In', 'PauseEnforcer', 'Port2In', 'PauseEnforcer'},...
             'OutputActions', []);
-
+        
+        sma = AddState(sma, 'Name', 'PauseEnforcer', 'Timer', 0.7,...
+            'StateChangeConditions', {'Tup', 'Pause'},...
+            'OutputActions', []);
+        
+        sma = AddState(sma, 'Name', 'Startover', 'Timer', 1.3,...
+            'StateChangeConditions', {'Tup', 'Pause'},...
+            'OutputActions', []);
+        
+        
+        
 
         SendStateMatrix(sma);
 		try
@@ -148,21 +169,21 @@ function earlyCustomDay
 
             try
                 BP = GetBehavioralPerformance(BpodSystem.Data);
-                myYesNoPerfOutcomePlot(BpodSystem.GUIHandles.YesNoPerfOutcomePlot, BpodSystem.GUIHandles.DisplayNTrials, 'update', BpodSystem.Data.nTrials+1, TrialTypes, BP.Outcomes, BP.Early, BP.Autolearn);
-                %get % rewarded is past RewardsForLastNTrials trials (can probably be combined with outcomes above)
-                Rewards = 0;
-                for x = max([1 BpodSystem.Data.nTrials-(RewardsForLastNTrials-1)]):BpodSystem.Data.nTrials
-                    if BpodSystem.Data.TrialSettings(x).GUI.ProtocolType==S.GUI.ProtocolType && isfield(BpodSystem.Data.RawEvents.Trial{x}.States,'Reward')
-                        if isfield(BpodSystem.Data.RawEvents.Trial{x}.States,'LickLeft') || isfield(BpodSystem.Data.RawEvents.Trial{x}.States, 'LickRight')
-                            %if ~isnan(BpodSystem.Data.RawEvents.Trial{x}.States.Reward(1))
-                            if ~isnan(BpodSystem.Data.RawEvents.Trial{x}.States.LickLeft(1)) || ~isnan(BpodSystem.Data.RawEvents.Trial{x}.States.LickRight(1))
-                                Rewards = Rewards + 1;
-                            end
-                        end
-                    end
-                end
-                S.ProtocolHistory(end,3) = Rewards / RewardsForLastNTrials;
-                recent = Rewards / min(RewardsForLastNTrials, max(1, BpodSystem.Data.nTrials));
+%                 myYesNoPerfOutcomePlot(BpodSystem.GUIHandles.YesNoPerfOutcomePlot, BpodSystem.GUIHandles.DisplayNTrials, 'update', BpodSystem.Data.nTrials+1, TrialTypes, BP.Outcomes, BP.Early, BP.Autolearn);
+%                 %get % rewarded is past RewardsForLastNTrials trials (can probably be combined with outcomes above)
+%                 Rewards = 0;
+%                 for x = max([1 BpodSystem.Data.nTrials-(RewardsForLastNTrials-1)]):BpodSystem.Data.nTrials
+%                     if BpodSystem.Data.TrialSettings(x).GUI.ProtocolType==S.GUI.ProtocolType && isfield(BpodSystem.Data.RawEvents.Trial{x}.States,'Reward')
+%                         if isfield(BpodSystem.Data.RawEvents.Trial{x}.States,'LickLeft') || isfield(BpodSystem.Data.RawEvents.Trial{x}.States, 'LickRight')
+%                             %if ~isnan(BpodSystem.Data.RawEvents.Trial{x}.States.Reward(1))
+%                             if ~isnan(BpodSystem.Data.RawEvents.Trial{x}.States.LickLeft(1)) || ~isnan(BpodSystem.Data.RawEvents.Trial{x}.States.LickRight(1))
+%                                 Rewards = Rewards + 1;
+%                             end
+%                         end
+%                     end
+%                 end
+%                 S.ProtocolHistory(end,3) = Rewards / RewardsForLastNTrials;
+%                 recent = Rewards / min(RewardsForLastNTrials, max(1, BpodSystem.Data.nTrials));
             catch ME
                 warning('Data save error!!!');
                 bad = 1;
